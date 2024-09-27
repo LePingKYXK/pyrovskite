@@ -1,7 +1,13 @@
-# Perovskite_Analysis
+# Pyrovskite
 1) Extract structural features of 2D, 3D, and 2D/3D double perovskite systems.
 2) Build and analyze bulk perovskites, double perovskites, 2D perovskites, and 2D double perovskites.
-3) Generate elctronic structure input files for xTB/GPAW
+3) Generate elcetronic structure input files for xTB/GPAW.
+
+#### 🟩 If you use this code for your research, please cite: https://doi.org/10.1063/5.0159407 🟩
+
+--------
+
+**Goldschmidt and octahedral factors have been added for most systems, please see `pyrovskite/data.py` and `pyrovskite/perovskite.py:337-363` if you need these experimental features before docs + examples are uploaded.**
 
 ## Requirements
 - ASE https://wiki.fysik.dtu.dk/ase/
@@ -21,12 +27,12 @@ git clone https://github.com/r2stanton/pyrovskite.git .
 pip install -e .
 ```
 
-With this method you'll download the tests and example jupyter notebooks. Tests can be run with pytest by navigating to the tests/ folder and running ```pytest .```
+With this method you'll download the tests and example jupyter notebooks. Tests can be run with pytest by navigating to the `tests/` folder and running ```pytest .```
 
-A collection of organic A'-site and A-site cations will be added in the near future.
+A small collection of organic A'-site and A-site are available in the `res/` folder, see `spacers.csv` for charge info.
 
 ## Usage
-A brief overview of code usage is discussed here, however a much more detailed explanation is contained in the Jupyter notebooks found in /examples.
+A brief overview of code usage is discussed here, however a much more detailed explanation is contained in the Jupyter notebooks found in `/examples`.
 
 ### Example usage, from structure creation to analysis.
 

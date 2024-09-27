@@ -1,6 +1,7 @@
 from pymatgen.io.ase import AseAtomsAdaptor as ase2pmg
 from pyrovskite.geometry import bxb_angles, _gaussian_kernel_discrete_spectrum, _get_plottable_partial_rdf
 from pyrovskite.io import xTB_input, GPAW_input
+from pyrovskite.data import get_ionic_radius
 from pymatgen.core.structure import Structure
 import matplotlib, itertools, sys
 import matplotlib.pyplot as plt
@@ -11,20 +12,30 @@ import numpy as np
 class Perovskite:
     """
     Constructor arguments:
+    Required:
         atoms (str or ase.atoms.Atoms): Filename or Atoms object of the 
                                         perovskite system.
+    Optional:
         Ap (str): Name of spacer cation in 2D perovskite systems.
-        A  (str): A-site cation (see list of A-site cations code will look for
-                  automatically).
+        A  (str): A-site cation.
         B  (str): B-site cation (see list of B-site cations code will look for
                   automatically).
         Bp (str): B'-site cation in the case of Double perovskite systems.
         X  (str): X-site anion (code will expect Halogen or Oxygen).
         n  (int): Layer number in the case of 2D perovskite systems, optionally
                   use np.inf for bulk.
+        custom_B_cations (list): List of B-site cations (as strings) to look
+                  for in the structure. If not provided, code will look for
+                  Pb, Sn, Ge, Bi, In, Tl, Zn, Cu, Mn, Sb, Cd, Fe, Ag, Au.
+        custom_X_anions (list): List of X-site anions (as strings) to look
+                  for in the structure. If not provided, code will look for
+                  O, F, Cl, Br, I.
     """
 
-    def __init__(self, atoms, Ap=None, A=None, B=None, Bp=None, X=None, n=None):
+    def __init__(self, atoms, Ap=None, A=None, B=None, Bp=None, X=None, n=None,
+                 custom_B_cations=None, custom_X_anions=None,
+                 suppress_output=False):
+
         if type(atoms) == str:
             self.atoms=ase.io.read(atoms)
         elif type(atoms) == ase.atoms.Atoms:
@@ -64,8 +75,17 @@ class Perovskite:
         # These are used to help determine B-, X-site ions insofar as they're not provided.
         # This can also be passed as an argument if one is using perovskites containing more 
         # exotic materials, e.g. organic X-site anions, or TM B-site cations, etc.
-        self.common_B = ['Pb', 'Sn', 'Ge', 'Bi', 'In', 'Tl', 'Zn', 'Cu', 'Mn', 'Sb', 'Cd', 'Fe', 'Ag', 'Au']
-        self.common_X = ['O', 'F', 'Cl', 'Br', 'I']
+        if custom_B_cations is not None:
+            self.common_B = custom_B_cations
+        else:
+            self.common_B = ['Pb', 'Sn', 'Ge', 'Bi', 'In', 'Tl', 'Zn', 'Cu',
+                             'Mn', 'Sb', 'Cd', 'Fe', 'Ag', 'Au', 'Pd', 'Cd',
+                             'Hg', 'Co', 'Mg']
+
+        if custom_X_anions is not None: 
+            self.common_X = custom_X_anions
+        else:
+            self.common_X = ['O', 'F', 'Cl', 'Br', 'I']
 
         unique_types = []
         for atom in self.atoms.get_chemical_symbols():
@@ -80,24 +100,28 @@ class Perovskite:
             pass
         if self.B == None:
             B_candidates = list(set(self.common_B) & set(self.atom_types))
-            print(f"\nNo B-cation set, candidate B-cations determined from structure:\n{B_candidates}\n")
+            if not suppress_output:
+                print(f"\nNo B-cation set, candidate B-cations determined from structure:\n{B_candidates}\n")
 
             if len(B_candidates) == 1:
                 self.B = B_candidates[0]
             elif len(B_candidates) == 2:
-                print(f"Two B-site candidates found, possible double perovskite system\nSetting B={B_candidates[0]} and Bp={B_candidates[1]}")
+                if not suppress_output:
+                    print(f"Two B-site candidates found, possible double perovskite system\nSetting B={B_candidates[0]} and Bp={B_candidates[1]}")
                 self.B = B_candidates[0]
                 self.Bp = B_candidates[1]
             else: # Figure out how to deal with weird structures later.
-                ...
-                sys.exit(1)
+                raise ValueError("B-site cation not detected, provide manually.")
 
         if self.X == None:
             # The X anions are more problematic because they can pop up in spacing cations.
             # Particularly O, F.
             self.common_X = ['O', 'F', 'Cl', 'Br', 'I']
             X_candidates = list(set(self.common_X) & set(self.atom_types))
-            print(f"\nNo X-anion set, candidate X-anions determined from structure:\n{X_candidates}\n")
+
+            if not suppress_output:
+                print(f"\nNo X-anion set, candidate X-anions determined from structure:\n{X_candidates}\n")
+
             if len(X_candidates) == 1:
                 self.X = X_candidates[0]
 
@@ -105,7 +129,7 @@ class Perovskite:
             # The logic here is this: 
             # For spacers containing, e.g. F, O, their nearest neighbors should be C, N, O, H.
             # For F, O that are true X-site cations, their nearest neighbors should be B-site cations.
-            else:
+            elif len(X_candidates) > 1:
                 X_candidates = list(set(self.common_X) & set(self.atom_types))
                 org_candidates = ['C', 'H', 'N', 'O']
 
@@ -138,14 +162,12 @@ class Perovskite:
                         inorg_max = X_nn[key]['inorg']
                 
 
-
-
-
                 # If local chem env. determines X-site anion.
                 # If not, we need a slightly more robut (but more time)
                 # consuming approach to determining the X-anion
                 if X_max is not None:
-                    print(f"{X_max} detected as the X-anion. [From local env.]")
+                    if not suppress_output:
+                        print(f"{X_max} detected as the X-anion. [From local env.]")
                     self.X = X_max
                 else:
                     # Approach 2:
@@ -172,8 +194,9 @@ class Perovskite:
 
                     tmp_idx = X_av_list.index(min(X_av_list))
                     self.X = X_id[tmp_idx]
-                    print("\nSimple local env method failed.")
-                    print(f"{self.X} determined as X-anion from more robust method. Check this is right.\n")
+                    if not suppress_output:
+                        print("\nSimple local env method failed.")
+                        print(f"{self.X} determined as X-anion from more robust method. Check this is right.\n")
 
                 # STOICHIOMETRY NEEDS MORE WORK... 2D Perovskites have X_3n+1, bulk have X_3n, so we
                 # Need to be able to differentiate between the two.. 
@@ -184,6 +207,8 @@ class Perovskite:
                 #     X_cts[Xc_idx] = sum([0 if x.symbol != Xc else 1 for x in self.atoms])
                 # stoich_X = X_candidates[np.argmin(X_cts % 3)]
                 # print(f"{stoich_X} detected as the X-anion. [From stoichiometry, local env. failed]")
+            elif len(X_candidates) == 0:
+                raise ValueError("X-site anion not detected, provide manually.")
                     
 
     def identify_octahedra(self, return_distances = False):
@@ -296,7 +321,47 @@ class Perovskite:
 
     def _get_angle(self, a, b):
         """ Simple trig to get X-B-X angle"""
-        return np.arccos((np.dot(a,b)/(np.linalg.norm(a)*np.linalg.norm(b)))) * 180/np.pi
+        arg_arccos =  np.dot(a,b) / ( np.linalg.norm(a) * np.linalg.norm(b) )  
+
+
+        # Sometimes there is a precision error, which makes the |argument| slightly larger than 1.0
+        # let's see this as a temporary fix, because really some enforced precision on np ops
+        # should sort this. @FIXME
+        if arg_arccos > 1.0 and arg_arccos < 1.0005:
+            arg_arccos = 1.0
+        elif arg_arccos < -1.0 and arg_arccos > -1.0005:
+            arg_arccos = -1.0
+
+        return np.arccos(arg_arccos) * 180/np.pi
+
+    def compute_goldschmidt_tolerance(self, R_A = None):
+
+        if self.Bp is not None:
+            raise ValueError("Double perovskite tolerance factors not implemented, ensure Bp is None.")
+
+        if self.A is None and R_A is None:
+            raise ValueError("A-cation is not set, or the A-cation ionic radius is not provided")
+
+        if R_A is None:
+            R_A = get_ionic_radius("A", self.A)
+        R_B = get_ionic_radius("B", self.B)
+        R_X = get_ionic_radius("X", self.X)
+
+        self.t_g = (R_A + R_X)/(np.sqrt(2)*(R_B + R_X))
+
+        return self.t_g
+
+    def compute_octahedral_tolerance(self):
+
+        if self.Bp is not None:
+            raise ValueError("Double perovskite tolerance factors not implemented, ensure Bp is None.")
+
+        R_B = get_ionic_radius("B", self.B)
+        R_X = get_ionic_radius("X", self.X)
+
+        self.mu = (R_B/R_X)
+        return self.mu
+
 
     def compute_delta(self, return_type = "delta"):
         """
@@ -427,7 +492,6 @@ class Perovskite:
 
             res = np.zeros_like(Xs[0])  # For computation of tilde{P} from tilde_P_list
             e_basis = np.zeros((3,3))   # For the 'basis' of the octahedra
-            print(e_basis)
             for e_idx, pair in enumerate(self.trans_pairs[idx]):
                 
                 # Here we store the basis vectors for the octahedra.
@@ -509,7 +573,7 @@ class Perovskite:
             elif return_type == "octahedra_lambda":
                 return(self.octahedra_Lambda_3, self.octahedra_Lambda_2, self.octahedra_Lambda)
             elif return_type == "both":
-                print("compute_lambda return both signature is:\n octa_L3, octa_L2, octa_L, L3, L2, L")
+                # print("compute_lambda return both signature is:\n octa_L3, octa_L2, octa_L, L3, L2, L")
                 return(self.octahedra_Lambda_3, self.octahedra_Lambda_2, self.octahedra_Lambda,
                        self.Lambda_3, self.Lambda_2, self.Lambda)
             else:
@@ -520,7 +584,7 @@ class Perovskite:
             elif return_type == "octahedra_lambda":
                 return(self.octahedra_Lambda_3, self.octahedra_Lambda_2)
             elif return_type == "both":
-                print("compute_lambda return both signature is:\n octa_L3, octa_L2, octa_L, L3, L2, L")
+                # print("compute_lambda return both signature is:\n octa_L3, octa_L2, octa_L, L3, L2")
                 return(self.octahedra_Lambda_3, self.octahedra_Lambda_2,
                        self.Lambda_3, self.Lambda_2)
             else:
@@ -614,7 +678,7 @@ class Perovskite:
             plt.show()
 
     def plot_rdf(self, max_dist = 10, ss_norm = False, mode = 'pyrovskite',
-                 fignum = 22, show = True):
+                 fignum = 22, show = True, element_pairs = None):
         """
         Input:
             max_dist (float/int): Max distance in angstrom for the RDF 
@@ -638,12 +702,21 @@ class Perovskite:
                              [self.B, self.B],
                              [self.X, self.X]]
         else:
-            element_pairs = [[self.B, self.X],
-                             [self.B, self.B],
-                             [self.X, self.X],
-                             [self.Bp, self.X],
-                             [self.Bp, self.Bp],
-                             [self,Bp, self.B]]
+            if element_pairs is not None:
+                if element_pairs == ["B,X", "Bp,X"]:
+
+                    element_pairs = [
+                        [self.B, self.X],
+                        [self.Bp, self.X]
+                                     ]
+
+                else:
+                    element_pairs = [[self.B, self.X],
+                                     [self.B, self.B],
+                                     [self.X, self.X],
+                                     [self.Bp, self.X],
+                                     [self.Bp, self.Bp],
+                                     [self.Bp, self.B]]
 
         plottable_rdfs = _get_plottable_partial_rdf(self, element_pairs,
                                                     max_dist = max_dist,
@@ -672,7 +745,6 @@ class Perovskite:
         This function is a thin wrapper around pyrovskite.input_generator's
         xTB_input function. See help(pyrovskite.input_generator.xTB_input)
         for the full documentation.
-
         """
 
         if atoms is None:
@@ -688,7 +760,6 @@ class Perovskite:
         This function is a thin wrapper around pyrovskite.input_generator's
         GPAW_input function. See help(pyrovskite.input_generator.GPAW_input)
         for the full documentation.
-
         """
 
         if atoms is None:

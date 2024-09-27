@@ -1,4 +1,5 @@
 from pymatgen.io.ase import AseAtomsAdaptor
+import numpy as np
 import ase.io, os
 
 def xTB_input(calc_type = "vcopt", prefix = "xtb", cif_name = None,
@@ -224,7 +225,8 @@ def xTB_input(calc_type = "vcopt", prefix = "xtb", cif_name = None,
                     """)
 
 def GPAW_input(calc_type = "fcopt", prefix = "gpaw", cif_name = None,
-              atoms = None, opt_algo = "FIRE", fmax = .02):
+              atoms = None, opt_algo = "FIRE", fmax = .02, ecut = 450,
+               kpt_dens = 6.0):
 
     """
     Generates basic GPAW input file. Feel free to use as a template for the
@@ -246,6 +248,10 @@ def GPAW_input(calc_type = "fcopt", prefix = "gpaw", cif_name = None,
         Optimization algorithm to use. Options are "FIRE" and "BFGS".
     fmax : float
         Force convergence criteria for optimization (in eV/Angstrom).
+    ecut : float
+        Plane wave cutoff energy (in eV).
+    kpt_dens : float
+        K-point density (in Angstrom^-1).
 
     Returns
     -------
@@ -264,7 +270,7 @@ def GPAW_input(calc_type = "fcopt", prefix = "gpaw", cif_name = None,
         atoms.write(cif_name)
 
 
-    kpt_str = "kpts={'density': 6.0, 'gamma': True},"
+    kpt_str = "kpts={'density': %d, 'gamma': True},", kpt_dens
     par_str = "parallel={'sl_auto': True},"
 
     if calc_type == "fcopt":
@@ -278,13 +284,13 @@ import ase.io, sys
 curr_structure = ase.io.read('{cif_name}')
 
 calc = GPAW(xc='PBE',
-            mode=PW(450, dedecut='estimate'),
+            mode=PW({ecut}, dedecut='estimate'),
             {kpt_str}
             {par_str}
             txt= '{prefix}' + '_fixopt.txt')
 
 curr_structure.calc = calc
-fix_relax = BFGS(curr_structure)
+fix_relax = {opt_algo}(curr_structure)
 fix_relax.run(fmax={fmax})
 
 curr_structure.write('{prefix}' + '_OPT.cif')
@@ -313,11 +319,5 @@ def _count_electrons(cif):
     else:
         atoms = cif.copy()
 
-    structure = AseAtomsAdaptor.get_structure(atoms)
-    chemical_symbols = structure.species
-    Z = 0
-    for elem in chemical_symbols:
-        Z += elem.Z
-
-    return Z
+    return(int(np.sum(atoms.get_atomic_numbers())))
 
